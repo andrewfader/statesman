@@ -199,14 +199,25 @@ module Statesman
         end
       end
 
+      # With a composite foreign key, matches every foreign key column against its
+      # parent column.
+      def parent_transitions
+        foreign_key = parent_association.foreign_key
+        return transitions_of_parent unless foreign_key.is_a?(Array)
+
+        foreign_key.zip(Array(parent_association.active_record_primary_key)).
+          map { |column, primary_key| transition_table[column.to_sym].eq(parent_model[primary_key]) }.
+          reduce(:and)
+      end
+
       def concrete_transitions_of_parent
         if transition_sti?
-          transitions_of_parent.and(
+          parent_transitions.and(
             transition_table[transition_class.inheritance_column].
               eq(transition_class.name),
           )
         else
-          transitions_of_parent
+          parent_transitions
         end
       end
 
@@ -295,8 +306,9 @@ module Statesman
 
             # We care about the columns used in the index, but not necessarily
             # the order, which is why we sort both sides of the comparison here
-            index.columns.sort == [parent_join_foreign_key, "sort_key"].sort ||
-              index.columns.sort == [parent_join_foreign_key, "most_recent"].sort
+            foreign_keys = Array(parent_join_foreign_key).map(&:to_s)
+            index.columns.sort == [*foreign_keys, "sort_key"].sort ||
+              index.columns.sort == [*foreign_keys, "most_recent"].sort
           end
       end
 
